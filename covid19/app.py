@@ -34,6 +34,12 @@ import cv2
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
+# MODEL2_API_URL = 'http://34.123.175.243:8511/v1/models/covid19/versions/1:predict'
+TF_SERVING_URL = 'http://34.123.175.243:8511/v1/models/covid19/versions/1:predict'
+KF_SERVING_URL = 'http://34.123.175.243:32380/v1/models/covid-19:predict'
+global MODEL2_API_URL
+MODEL2_API_URL = KF_SERVING_URL
+
 # Functions
 def test_rx_image_for_Covid19(model, imagePath, filename):
     img = cv2.imread(imagePath)
@@ -214,6 +220,26 @@ def hello_world():
 def liveness():
     return 'Covid19 detector API is live!'
 
+# Serving Change
+@app.route('/covid19/api/v1/serving/config/url', methods=['GET'])
+def changeServingUrl():
+    servingType = request.args.get('servingType')
+    global MODEL2_API_URL
+    if servingType == 'tensorflow':
+        MODEL2_API_URL = TF_SERVING_URL
+    elif servingType == 'kubeflow':
+        MODEL2_API_URL = KF_SERVING_URL
+    elif servingType == 'custom':
+        url = request.args.get('servingUrl')
+        if url:
+            MODEL2_API_URL = url
+        else:
+            MODEL2_API_URL = KF_SERVING_URL
+    else:
+        MODEL2_API_URL = KF_SERVING_URL
+    logging.warning('servingType: ' + servingType + ', Serving URL: ' + MODEL2_API_URL)
+    return 'Serving URL is changed to ' + MODEL2_API_URL
+
 @app.route("/query", methods=["POST"])
 def query():
     if request.method == 'POST':
@@ -235,9 +261,13 @@ def query():
 
             # detection covid
             try:
-                # prediction, prob, img_pred_name = test_rx_image_for_Covid19(covid_pneumo_model, img_path, filename)
-                # prediction, prob, img_pred_name = covid_classifier_model2(img_path, filename)
-                prediction, prob, img_pred_name = generate_gradcam_heatmap(covid_pneumo_model, img_path, filename)
+                # Internal function call
+                #prediction, prob, img_pred_name = test_rx_image_for_Covid19(covid_pneumo_model, img_path, filename)
+
+                # Tensorflow serving
+                prediction, prob, img_pred_name = covid_classifier_model2(img_path, filename)
+
+                #prediction, prob, img_pred_name = generate_gradcam_heatmap(covid_pneumo_model, img_path, filename)
                 output_path = os.path.join(app.config['OUTPUT_FOLDER'], img_pred_name)
                 return render_template('index.html', prediction=prediction, confidence=prob, filename=image_name, xray_image=img_path, xray_image_with_heatmap=output_path)
             except Exception as e:
@@ -276,13 +306,15 @@ def covid_classifier_model2(img_path, filename):
     requests.Session.trust_env = False
 
     #MODEL2_API_URL is tensorflow serving URL in another docker
-    HEADERS = {'content-type': 'application/json'}
-    MODEL2_API_URL = 'http://127.0.0.1:8511/v1/models/covid19/versions/1:predict'
+    HEADERS = {'content-type': 'application/json', 'Host':'covid-19.anonymous.example.com'}
+    
+    #MODEL2_API_URL = 'http://34.123.175.243:8511/v1/models/covid19/versions/1:predict'
+    #MODEL2_API_URL = 'http://34.123.175.243:8511/v1/models/covid19/versions/1:predict'
     CLASS_NAMES = ['Covid19', 'Normal_Lung', 'Pneumonia_Bacterial_Lung']
 
-    logging.warning("****** Tenserflow Serving Request  *****")
+    logging.warning("****** Serving Request to " + MODEL2_API_URL)
     json_response = requests.post(MODEL2_API_URL, data=data, headers=HEADERS)
-    logging.warning("****** Tenserflow Serving Response  *****")
+    logging.warning("****** Serving Response  *****")
     logging.warning(json_response)
     logging.warning(json_response.text)
 
@@ -348,7 +380,7 @@ def covid_classifier_model2_heatmap():
 
     #MODEL2_API_URL is tensorflow serving URL in another docker
     HEADERS = {'content-type': 'application/json'}
-    MODEL2_API_URL = 'http://127.0.0.1:8511/v1/models/covid19/versions/1:predict'
+    #MODEL2_API_URL = 'http://127.0.0.1:8511/v1/models/covid19/versions/1:predict'
     CLASS_NAMES = ['Covid19', 'Normal_Lung', 'Pneumonia_Bacterial_Lung']
 
     json_response = requests.post(MODEL2_API_URL, data=data, headers=HEADERS)
